@@ -1,2 +1,6 @@
 venv/
 datasets/
+.env
+venv_wsl/
+df_news_final.pkl
+df_news.pkl
