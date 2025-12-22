@@ -20,9 +20,6 @@ from trl import SFTTrainer
 from datasets import Dataset
 from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support, classification_report
 from tqdm import tqdm
-# import bitsandbytes as bnb
-# import accelerate
-# import trl
 
 # %% [markdown]
 # ## 1. Dataset Preprocessing
@@ -35,51 +32,100 @@ from tqdm import tqdm
 # - Convert time to datetime
 
 # %%
-# Loading the dailyfx news articles dataset (Title,Author,Date,Full Text,URL)
-df_news = pd.read_csv('datasets/news_articles/dailyfx_articles_012011-062024.csv')
-df_news = df_news[['Title', 'Date', 'Full Text', 'URL']]
+def filter_df(df):
+    df = df[['Title', 'Date', 'Full Text', 'URL']]
 
-# Load the fxstreet news articles dataset into same df (Title,Date,Full Text,URL)
-temp = pd.read_csv('datasets/news_articles/fxstreet_articles.csv')
-temp = temp[['Title', 'Date', 'Full Text', 'URL']]
-df_news = pd.concat([df_news, temp], ignore_index=True)
+    # Drop articles with <20 words
+    df = df[df['Full Text'].str.split().str.len() >= 20]
 
-# # Load investing.com news articles dataset into same df (Title,Full Text,URL,Date,Author)
-temp = pd.read_csv('datasets/news_articles/investingcom_finaldata_2011-062024.csv')
-temp = temp[['Title', 'Date', 'Full Text', 'URL']]
-df_news = pd.concat([df_news, temp], ignore_index=True)
+    # Remove duplicate articles
+    df = df.drop_duplicates(subset=['Full Text'])
+    df = df.drop_duplicates(subset=['Title'])
+    df = df.drop_duplicates(subset=['URL'])
+
+    # Truncate articles to max 32,767 characters
+    df['Full Text'] = df['Full Text'].str[:32767]
+
+    return df
 
 # %%
-# Drop articles with <20 words
-df_news = df_news[df_news['Full Text'].str.split().str.len() >= 20]
-
-# Remove duplicate articles
-df_news = df_news.drop_duplicates(subset=['Full Text'])
-df_news = df_news.drop_duplicates(subset=['Title'])
-df_news = df_news.drop_duplicates(subset=['URL'])
+# Loading the dailyfx news articles dataset (Title,Author,Date,Full Text,URL)
+dailyfx_news = pd.read_csv('datasets/news_articles/dailyfx_articles_012011-062024.csv')
+dailyfx_news = filter_df(dailyfx_news)
 
 # Convert time to datetime
-df_news['Date'] = pd.to_datetime(df_news['Date'], utc=True)
+dailyfx_news['Date'] = pd.to_datetime(dailyfx_news['Date'], utc=True)
 
-# Only keep articles before 2020
-# df_news = df_news[df_news['Date'] < pd.to_datetime('2020-01-01', utc=True)]
-
-# Truncate articles to max 32,767 characters
-df_news['Full Text'] = df_news['Full Text'].str[:32767]
-
-# Randomly sample 30000 articles
-df_news = df_news.sample(n=30000, random_state=42)
-
-# %%
-df_news['Date'] = (
-    df_news['Date']                        
+dailyfx_news['Date'] = (
+    dailyfx_news['Date']                        
     .dt.tz_convert('America/New_York')     # Convert to NY time like paper
     .dt.tz_localize(None)                  # Remove timezone info to allow for merging later
     .dt.normalize()                        # Normalise to midnight
 )
 
 # Sort by date
-df_news = df_news.sort_values(by='Date')
+dailyfx_news = dailyfx_news.sort_values(by='Date')
+
+print(f"Loaded {len(dailyfx_news)} articles")
+
+# %%
+# Load the fxstreet news articles dataset into same df (Title,Date,Full Text,URL)
+fxstreet_news = pd.read_csv('datasets/news_articles/fxstreet_articles.csv')
+fxstreet_news = filter_df(fxstreet_news)
+
+# Convert time to datetime
+fxstreet_news['Date'] = pd.to_datetime(fxstreet_news['Date'], utc=True)
+
+fxstreet_news['Date'] = (
+    fxstreet_news['Date']                        
+    .dt.tz_convert('America/New_York')     # Convert to NY time like paper
+    .dt.tz_localize(None)                  # Remove timezone info to allow for merging later
+    .dt.normalize()                        # Normalise to midnight
+)
+
+# Sort by date
+fxstreet_news = fxstreet_news.sort_values(by='Date')
+
+print(f"Loaded {len(fxstreet_news)} articles")
+
+# %%
+# Load investing.com news articles dataset into same df (Title,Full Text,URL,Date,Author)
+investing_news = pd.read_csv('datasets/news_articles/investingcom_finaldata_2011-062024.csv')
+investing_news = filter_df(investing_news)
+
+# Remove "Published" from date column
+investing_news['Date'] = investing_news['Date'].str.split(' ', n=1).str[-1].str.strip()
+
+# Convert the 'Date' column in investing_news to datetime
+investing_news['Date'] = pd.to_datetime(investing_news['Date'], format='%m/%d/%Y, %I:%M %p')
+
+investing_news['Date'] = (
+    investing_news['Date']
+    .dt.tz_localize(None)    # Remove timezone info
+    .dt.normalize()          # Noramlise to midnight
+)
+
+# Sort by date
+investing_news = investing_news.sort_values(by='Date')
+
+print(f"Loaded {len(investing_news)} articles")
+
+# %%
+# Combine all datasets together
+df_news = pd.concat(
+    [
+        dailyfx_news[['Title', 'Date', 'Full Text', 'URL']],
+        fxstreet_news[['Title', 'Date', 'Full Text', 'URL']],
+        investing_news[['Title', 'Date', 'Full Text', 'URL']]
+    ],
+    ignore_index=True
+)
+
+df_news = df_news.reset_index(drop=True)
+
+print(f"Total size: {len(df_news)}")
+
+df_news
 
 # %% [markdown]
 # ### 1.2. Creating mentioned_currency column
@@ -358,16 +404,19 @@ df_news
 # - Otherwise 80/20 train test split
 
 # %%
-df_news = pd.read_pickle("df_news.pkl")  # IMPORTANT - TODO CHANGE ME
+df_news = pd.read_pickle("df_news.pkl")
 
 df_news_before_2020 = df_news[df_news['Date'] < pd.to_datetime('2020-01-01', utc=True)]     # we train the model on this for now
 # df_news_after_2020 = df_news[df_news['Date'] >= pd.to_datetime('2020-01-01', utc=True)]   # we use this for the trading strategy
+
+# Randomly sample 30,000 articles
+df_news_before_2020 = df_news_before_2020.sample(n=30000, random_state=42)
 
 df_rest, df_eval = train_test_split(df_news_before_2020, test_size=200, random_state=42)
 df_train, df_test = train_test_split(df_rest, test_size=0.2, random_state=42)
 
 
-
+print(f"Size of all news: {len(df_news)}")
 print("Size of train set: ", len(df_train))
 print("Size of test set: ", len(df_test))
 print("Size of eval set: ", len(df_eval))
@@ -437,7 +486,7 @@ login(token=os.getenv("HF_TOKEN"))
 
 # 'meta-llama/Llama-3.1-8B-Instruct' - real
 # "meta-llama/Llama-3.2-1B-Instruct" - for local testing as smallest possible model
-model_id =  "meta-llama/Llama-3.1-8B-Instruct"
+model_id =  "meta-llama/Llama-3.2-1B-Instruct"
 
 # quntisation config
 bnb_config = BitsAndBytesConfig(
@@ -546,7 +595,7 @@ trainer = SFTTrainer(
 
 trainer.train()
 
-trainer.model.save_pretrained('llama_3.1_8B_finetuned')
+trainer.model.save_pretrained('llama_small_finetuned')
 print("Model saved.")
 
 # %% [markdown]
@@ -640,6 +689,8 @@ print(report)
 # ### 6.1 Load data
 
 # %%
+import pandas as pd
+
 df_news = pd.read_pickle("df_news.pkl")
 
 # TODO check if its inclusive
@@ -661,7 +712,7 @@ df_news
 
 # %%
 # Path to the saved directory
-model_dir = "llama_3.1_8B_finetuned"
+model_dir = "llama_small_finetuned"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -683,6 +734,29 @@ for idx, row in tqdm(df_news.iterrows(), total=len(df_news), desc="Processing ar
     sentiment_predictions.append(sentiment)
     df_news.at[idx, 'sentiment_predictions'] = sentiment
 
+# %%
+# Make fake predictions for testing
+
+# df_news = df_news.head(5000)
+
+import random
+random.seed(42)
+
+currency_codes = ['USD', 'EUR', 'JPY', 'GBP', 'CAD', 'AUD', 'CHF', 'SEK', 'NOK', 'NZD']
+
+def generate_fake_sentiment():
+    labels = ['appreciation', 'depreciation', 'unchanged']
+    # Future and past key naming as in further code
+    fake_dict = {}
+    for c in currency_codes:
+        fake_dict[f"{c}_future"] = random.choice(labels)
+        fake_dict[f"{c}_past"] = random.choice(labels)
+    return fake_dict
+
+df_news['sentiment_predictions'] = [generate_fake_sentiment() for _ in range(len(df_news))]
+
+df_news
+
 # %% [markdown]
 # ### 6.4 Daily Sentiment Score Generation
 # 
@@ -702,6 +776,8 @@ for idx, row in tqdm(df_news.iterrows(), total=len(df_news), desc="Processing ar
 # $$
 
 # %%
+import numpy as np
+
 # Initialise dict (currency, date)
 data_for_S = {}
 

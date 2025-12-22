@@ -7,3 +7,4 @@ df_news.pkl
 .vscode/
 df_log_returns.pkl
 old_venv_wsl/
+models/
