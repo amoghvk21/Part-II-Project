@@ -595,7 +595,7 @@ trainer = SFTTrainer(
 
 trainer.train()
 
-trainer.model.save_pretrained('llama_small_finetuned')
+trainer.model.save_pretrained('models_2/llama_finetuned')
 print("Model saved.")
 
 # %% [markdown]
@@ -711,15 +711,41 @@ df_news
 # ### 6.2 Load LLM
 
 # %%
-# Path to the saved directory
-model_dir = "llama_small_finetuned"
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from peft import PeftModel
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# 1. Define paths
+base_model_id = "meta-llama/Llama-3.2-8B-Instruct"
+adapter_dir = "llama_finetuned"
 
-tokenizer = AutoTokenizer.from_pretrained(model_dir)
-model = AutoModelForCausalLM.from_pretrained(model_dir).to(device)
+# 2. Quantization (Recommended to match your training environment)
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16
+)
 
-print("tokeniser and model loaded")
+# 3. Load the Tokenizer (Load from base model, not adapter dir, unless you explicitly saved it there)
+tokenizer = AutoTokenizer.from_pretrained(base_model_id)
+tokenizer.pad_token = tokenizer.eos_token
+
+# 4. Load the Base Model
+base_model = AutoModelForCausalLM.from_pretrained(
+    base_model_id,
+    quantization_config=bnb_config,
+    device_map="auto",
+    torch_dtype=torch.bfloat16
+)
+
+# 5. Load and attach the Fine-Tuned Adapters
+model = PeftModel.from_pretrained(base_model, adapter_dir)
+
+# 6. Set mode for inference
+model.eval()
+
+print("Tokenizer, Base Model, and Adapters loaded successfully.")
 
 # %% [markdown]
 # ### 6.3 Make inferences for all articles
