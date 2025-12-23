@@ -717,7 +717,7 @@ from peft import PeftModel
 
 # 1. Define paths
 base_model_id = "meta-llama/Llama-3.2-8B-Instruct"
-adapter_dir = "llama_finetuned"
+adapter_dir = "models_2/llama_finetuned"
 
 # 2. Quantization (Recommended to match your training environment)
 bnb_config = BitsAndBytesConfig(
