@@ -121,6 +121,9 @@ df_news = pd.concat(
     ignore_index=True
 )
 
+# Sort the combined dataframe by date
+df_news = df_news.sort_values(by='Date')
+
 df_news = df_news.reset_index(drop=True)
 
 print(f"Total size: {len(df_news)}")
@@ -485,8 +488,7 @@ load_dotenv()
 login(token=os.getenv("HF_TOKEN"))
 
 # 'meta-llama/Llama-3.1-8B-Instruct' - real
-# "meta-llama/Llama-3.2-1B-Instruct" - for local testing as smallest possible model
-model_id =  "meta-llama/Llama-3.2-1B-Instruct"
+model_id =  "meta-llama/Llama-3.1-8B-Instruct"
 
 # quntisation config
 bnb_config = BitsAndBytesConfig(
@@ -716,7 +718,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import PeftModel
 
 # 1. Define paths
-base_model_id = "meta-llama/Llama-3.2-8B-Instruct"
+base_model_id = "meta-llama/Llama-3.1-8B-Instruct"
 adapter_dir = "models_2/llama_finetuned"
 
 # 2. Quantization (Recommended to match your training environment)
