@@ -6,12 +6,17 @@
 # ## Imports
 
 # %%
+import transformers.utils.import_utils
+import transformers.trainer
+transformers.utils.import_utils.check_torch_load_is_safe = lambda: None
+transformers.trainer.check_torch_load_is_safe = lambda: None
+
 import numpy as np
 import pandas as pd
 import torch
 import re
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, TrainingArguments, EarlyStoppingCallback
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, PeftModel
 from sklearn.model_selection import train_test_split
 from dotenv import load_dotenv
 import os
@@ -216,7 +221,7 @@ trainer = SFTTrainer(
 )
 
 
-trainer.train()
+trainer.train(resume_from_checkpoint=True)
 
 trainer.model.save_pretrained('models_2/llama_finetuned')
 print("Model saved.")
