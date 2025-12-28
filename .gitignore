@@ -2,15 +2,15 @@ venv/
 venv_wsl/
 old_venv_wsl/
 
-1_compustat_paper/datasets/
-2_llm_paper/datasets/
+_1_compustat_paper/datasets/
+_2_llm_paper/datasets/
 
-2_llm_paper/cache/df_news_final.pkl
-2_llm_paper/cache/df_news.pkl
-2_llm_paper/cache/df_log_returns.pkl
+_2_llm_paper/cache/df_news_final.pkl
+_2_llm_paper/cache/df_news.pkl
+_2_llm_paper/cache/df_log_returns.pkl
 
-1_computat_paper/models/
-2_llm_paper/models
+_1_compustat_paper/models
+_2_llm_paper/models
 
 .vscode/
 .cursor/
