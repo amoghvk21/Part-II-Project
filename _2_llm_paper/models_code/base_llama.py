@@ -22,7 +22,7 @@ import import_ipynb
 # # Prompt Generation
 
 # %%
-def generate_prompt(row, is_training=False):
+def generate_prompt(row, is_training=False, instruct_model=False):
     title = row.get('Title', '')
     text = row.get('Full Text', '')
     currencies = row.get('mentioned_currencies')
@@ -70,8 +70,8 @@ def generate_prompt(row, is_training=False):
         "- **CHF**: CHF, Swiss Franc, Swiss Francs, Swissie\n"
         "- **NZD**: NZD, New Zealand Dollar, New Zealand Dollars, Kiwi\n"
         "- **NOK**: NOK, Norwegian Krone, Norwegian Kroner\n"
-        "- **SEK**: SEK, Swedish Krona, Swedish Kronor\n"
-        "Answer below in the given format:"
+        "- **SEK**: SEK, Swedish Krona, Swedish Kronor\n\n"
+        "Answer below in the given format\n"
     )
     
     if is_training:
@@ -107,7 +107,7 @@ def setup(model_id):
     
     # Load Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    tokenizer.model_max_length = 8192
+    # tokenizer.model_max_length = 8192
     
     if tokenizer.pad_token is None:
         if '<|finetune_right_pad_id|>' in tokenizer.get_vocab():
@@ -168,7 +168,7 @@ def get_sentiment(row, model, tokenizer):
         prompt,
         return_tensors="pt",
         truncation=True,  # to avoid crashing model due to very large article
-        max_length=8192
+        # max_length=8192
     )
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
@@ -182,6 +182,12 @@ def get_sentiment(row, model, tokenizer):
         )
 
     response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    print(response)
+    print()
+    print()
+    print()
+    print()
+    print()
     response = response[len(prompt):].strip()    # skips over prompt
 
     # Parse response to get labels into a dict
