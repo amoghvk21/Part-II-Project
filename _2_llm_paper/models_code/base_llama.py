@@ -187,11 +187,14 @@ def get_sentiment(row, model, tokenizer):
     # Parse response to get labels into a dict
     sentiment = {}
     for line in response.split('\n'):
-        if line.strip():
-            currency, label = line.split(':')
-            currency = currency.strip()
-            label = label.strip()
-            sentiment[currency] = label
+        try:
+            if line.strip():
+                currency, label = line.split(':')
+                currency = currency.strip()
+                label = label.strip()
+                sentiment[currency] = label
+        except ValueError:
+            return {}
 
     return sentiment
 
@@ -199,7 +202,7 @@ def get_sentiment(row, model, tokenizer):
 # ## 5.2 Get evaulation statistics
 
 # %%
-def evaulation(model, tokenizer, df_eval):
+def evaluation(model, tokenizer, df_eval):
     currency_codes = ['EUR', 'USD', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD', 'NOK', 'SEK']
 
     all_actual = []
