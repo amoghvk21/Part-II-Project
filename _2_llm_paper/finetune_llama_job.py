@@ -101,6 +101,12 @@ df_rest, df_eval = train_test_split(df_news_before_2020, test_size=200, random_s
 df_train, df_test = train_test_split(df_rest, test_size=0.2, random_state=42)
 
 
+# Save df_train, df_test, df_eval
+df_train.to_pickle("_2_llm_paper/cache/df_train.pkl")
+df_test.to_pickle("_2_llm_paper/cache/df_test.pkl")
+df_eval.to_pickle("_2_llm_paper/cache/df_eval.pkl")
+
+
 print(f"Size of all news: {len(df_news)}")
 print("Size of train set: ", len(df_train))
 print("Size of test set: ", len(df_test))
@@ -119,7 +125,7 @@ print("setup complete")
 finetuned_llama.finetune(model, tokenizer, peft_config, df_train, df_test, MODEL_SAVE_DIR)
 print("finetune completed")
 
-finetuned_llama.evaulation(model, tokenizer, df_eval)
+finetuned_llama.evaluation(model, tokenizer, df_eval)
 print("evaluation completed")
 
 # %% [markdown]

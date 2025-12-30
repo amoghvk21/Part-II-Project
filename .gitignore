@@ -5,12 +5,12 @@ old_venv_wsl/
 _1_compustat_paper/datasets/
 _2_llm_paper/datasets/
 
-_2_llm_paper/cache/df_news_final.pkl
-_2_llm_paper/cache/df_news.pkl
-_2_llm_paper/cache/df_log_returns.pkl
+_2_llm_paper/cache
 
 _1_compustat_paper/models
 _2_llm_paper/models
+
+__pycache__/
 
 .vscode/
 .cursor/
