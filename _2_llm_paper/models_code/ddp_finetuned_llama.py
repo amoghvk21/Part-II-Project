@@ -18,6 +18,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_su
 from tqdm import tqdm
 import import_ipynb
 from transformers.trainer_utils import get_last_checkpoint
+from functools import partial
 
 # %% [markdown]
 # # Hyperparamers
@@ -40,20 +41,25 @@ LORA_TARGET_MODULES = [   # Injecting into all linear layers as per paper
 
 # Llama parameters
 NUM_TRAIN_EPOCHS = 3
-PER_DEVICE_TRAIN_BATCH_SIZE = 1
-PER_DEVICE_EVAL_BATCH_SIZE = 1
-GRADIENT_ACCUMULATION_STEPS = 32
+PER_DEVICE_TRAIN_BATCH_SIZE = 8
+PER_DEVICE_EVAL_BATCH_SIZE = 8
+GRADIENT_ACCUMULATION_STEPS = 2
 SAVE_STEPS = 50
 LEARNING_RATE = 1e-5
 WEIGHT_DECAY = 0.1
 MAX_GRAD_NORM = 0.3
 LOGGING_STEPS = 10
 
+# effective batch size = batch size per device * gradient accumulation steps * number of gpus 
+# paper used effective batch size of 32
+
+print("new hyperparams")
+
 # %% [markdown]
 # # Prompt Generation
 
 # %%
-def generate_prompt(row, is_training=True):
+def generate_prompt(row, tokenizer, is_training=True):
     title = row.get('Title', '')
     text = row.get('Full Text', '')
     currencies = row.get('mentioned_currencies')
@@ -102,8 +108,12 @@ def generate_prompt(row, is_training=True):
         "- **NZD**: NZD, New Zealand Dollar, New Zealand Dollars, Kiwi\n"
         "- **NOK**: NOK, Norwegian Krone, Norwegian Kroner\n"
         "- **SEK**: SEK, Swedish Krona, Swedish Kronor\n\n"
-        "Answer below in the given format:"
+        "Answer below in the given format:\n"
     )
+
+    messages = [
+        {"role": "user", "content": prompt} # 'prompt' is your string from before
+    ]
     
     if is_training:
         # Exptected output for currencies mentioned in the article
@@ -115,16 +125,37 @@ def generate_prompt(row, is_training=True):
             expected_output += f'{c}_past: "{past_label}"\n'
             expected_output += f'{c}_future: "{future_label}"\n'
             
-        return prompt + "\n" + expected_output
+        messages.append({"role": "assistant", "content": expected_output})
+        
+        # Apply template to the WHOLE conversation
+        return tokenizer.apply_chat_template(messages, tokenize=False)
     else:
-        return prompt + "\n"
+        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 # %% [markdown]
 # # Finetuned Llama Model Setup
 
 # %%
 def setup(model_id):
-    
+
+    load_dotenv()
+    login(token=os.getenv("HF_TOKEN"))
+
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+
+    if local_rank == 0:
+        print(f"DDP enabled | world_size={world_size}")
+
+    print(
+        f"PID={os.getpid()} "
+        f"RANK={os.environ['RANK']} "
+        f"LOCAL_RANK={os.environ['LOCAL_RANK']} "
+        f"CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}"
+    )
 
     # quntisation config
     bnb_config = BitsAndBytesConfig(
@@ -138,37 +169,33 @@ def setup(model_id):
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.model_max_length = MAX_SEQ_LENGTH
     
-    if tokenizer.pad_token is None:
-        # Check for Llama 3 specific reserved token first (Standard HF approach)
-        if '<|reserved_special_token_0|>' in tokenizer.get_vocab():
-            tokenizer.pad_token = '<|reserved_special_token_0|>'
-            tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<|reserved_special_token_0|>')
-            print("Set pad_token to Llama 3 reserved token (<|reserved_special_token_0|>)")
-        else:
-            raise Exception("Can't find padding token")
-
-    else:
-        print(f"Padding token is already set to: {tokenizer.pad_token}")
+    # Force padding token to <|reserved_special_token_0|>
+    tokenizer.pad_token = '<|reserved_special_token_0|>'
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<|reserved_special_token_0|>')
+    if local_rank == 0:  # Only print on main process
+        print("Set pad_token to Llama 3 reserved token (<|reserved_special_token_0|>)")
 
     tokenizer.padding_side = "right"    # Use right for finetuning
 
-    # load model 
+    # Load on specific GPU for this process
+    device_map = {"": local_rank}  
+
+    print(f"DEBUG: Rank {local_rank} is attempting to load model.")
+    print(f"DEBUG: Rank {local_rank} device_map is STRICTLY: {device_map}")    
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=bnb_config,
-        device_map="auto",
+        device_map=device_map,
         dtype=torch.bfloat16
     )
 
-    # Get the device of the first parameter (for logging/info)
-    device = next(model.parameters()).device
-    print(f"Model loaded with device_map='auto'. First parameter on: {device}")
+    model = model.to(device)
+    print(f"[Rank {local_rank}] Model loaded on device: {next(model.parameters()).device}")
 
     model.config.use_cache = False
-    model.config.pretraining_tp = 1
 
     # Prepare for training 
-    model = prepare_model_for_kbit_training(model)
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)   # do in need gradient checkpointing
 
     # LoRA config
     peft_config = LoraConfig(
@@ -179,6 +206,7 @@ def setup(model_id):
         task_type=LORA_TASK_TYPE,
         target_modules=LORA_TARGET_MODULES
     )
+
 
     return model, tokenizer, peft_config
 
@@ -197,6 +225,12 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
 
     tokenizer.padding_side = "right"   # for finetuning
 
+    # DDP environment
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    
+    if local_rank == 0:  # Only print on main process
+        print(f"Training with DDP | world_size={world_size}")
 
     training_args = TrainingArguments(
         # output_dir=f"_2_llm_paper/models/{save_name}/checkpoints",
@@ -222,20 +256,24 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         logging_steps=LOGGING_STEPS,                   # TODO get a better number
         save_total_limit=3,
         group_by_length=True,
-        report_to="none"                    # Disable wandb unless needed
+        report_to="none",                    # Disable wandb unless needed
+        ddp_find_unused_parameters=False,    # Important for DDP efficiency
+        dataloader_pin_memory=True,          # Can help with multi-GPU performance
     )
-
 
 
     df_train = Dataset.from_pandas(df_train)
     df_test = Dataset.from_pandas(df_test)
+
+    # Create partial function with tokenizer bound
+    formatting_func = partial(generate_prompt, tokenizer=tokenizer)
 
     trainer = SFTTrainer(
         model=model,
         train_dataset=df_train, # Ensure this is loaded
         eval_dataset=df_test,
         peft_config=peft_config,
-        formatting_func=generate_prompt,
+        formatting_func=formatting_func,
         processing_class=tokenizer,
         args=training_args,
         # packing=False,
@@ -245,15 +283,21 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
     last_checkpoint = get_last_checkpoint(training_args.output_dir)
 
     if last_checkpoint is not None:
-        print(f"Resuming from checkpoint: {last_checkpoint}")
+        if local_rank == 0:  # Only print on main process
+            print(f"Resuming from checkpoint: {last_checkpoint}")
         trainer.train(resume_from_checkpoint=last_checkpoint)
     else:
-        print("No checkpoint found. Starting training from scratch...")
+        if local_rank == 0:  # Only print on main process
+            print("No checkpoint found. Starting training from scratch...")
         trainer.train()
 
-    # trainer.model.save_pretrained(f"_2_llm_paper/models/{save_name}/model")
-    trainer.model.save_pretrained(f"/home/av670/rds/hpc-work/models/{save_name}/model")
-    print("Model saved.")
+    # Only save on main process (rank 0) to avoid conflicts
+    if local_rank == 0:
+        # trainer.model.save_pretrained(f"_2_llm_paper/models/{save_name}/model")
+        trainer.model.save_pretrained(f"/home/av670/rds/hpc-work/models/{save_name}/model")
+        print("Model saved.")
+    else:
+        print(f"Skipping save on non-main process (rank {local_rank})")
 
 # %% [markdown]
 # # Evaulation
@@ -265,7 +309,10 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
 
 # %%
 def get_sentiment(row, model, tokenizer):
-    prompt = generate_prompt(row)
+
+    tokenizer.padding_side = "left"   # for inference
+
+    prompt = generate_prompt(row, tokenizer, is_training=False)
 
     inputs = tokenizer(
         prompt,
@@ -285,14 +332,16 @@ def get_sentiment(row, model, tokenizer):
             max_new_tokens=512,     # only needs to generate enough for sentiment
             temperature=0.1,        # incase there was sampling
             do_sample=False,        # no sampling - so no randomness
-            pad_token_id=tokenizer.eos_token_id
+            pad_token_id=tokenizer.pad_token_id   # Use same padding token as training
         )
-
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    response = response[len(prompt):].strip()    # skips over prompt
+    
+    input_len = inputs['input_ids'].shape[1] # le of input tokens
+    response_tokens = outputs[0][input_len:] # remove to get only the response
+    response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
 
     # Validate response is not empty
     if not response:
+        print("")
         return {}
 
     # Parse response to get labels into a dict
@@ -324,7 +373,7 @@ def evaluation(model, tokenizer, df_eval):
 
     skipped_rows = 0
     for i, row in df_eval.iterrows():
-        sentiment = get_sentiment(row, model, tokenizer)
+        sentiment = get_sentiment(row, model=model, tokenizer=tokenizer)
         
         # Skip this row if LLM response was invalid
         if sentiment == {}:
@@ -369,7 +418,7 @@ def evaluation(model, tokenizer, df_eval):
 
 # %%
 def load(base_model_id, adapter_dir):
-    # 2. Quantization (Recommended to match your training environment)
+    # Quantization (Recommended to match your training environment)
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_use_double_quant=True,
@@ -377,12 +426,16 @@ def load(base_model_id, adapter_dir):
         bnb_4bit_compute_dtype=torch.bfloat16
     )
 
-    # 3. Load the Tokenizer (Load from base model, not adapter dir, unless you explicitly saved it there)
+    # Load the Tokenizer (Load from base model, not adapter dir, unless you explicitly saved it there)
     tokenizer = AutoTokenizer.from_pretrained(base_model_id)
-    tokenizer.pad_token = tokenizer.eos_token
+
+    tokenizer.pad_token = '<|reserved_special_token_0|>'
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<|reserved_special_token_0|>')
+    print("Set pad_token to Llama 3 reserved token (<|reserved_special_token_0|>)")
+
     tokenizer.padding_side = "left"    # for inference
 
-    # 4. Load the Base Model
+    # Load the Base Model
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_id,
         quantization_config=bnb_config,
@@ -390,12 +443,12 @@ def load(base_model_id, adapter_dir):
         dtype=torch.bfloat16
     )
 
-    # 5. Load and attach the Fine-Tuned Adapters
+    # Load and attach the Fine-Tuned Adapters
     model = PeftModel.from_pretrained(base_model, f"/home/av670/rds/hpc-work/models/{adapter_dir}/model")
 
-    # 6. Set mode for inference
+    # Set mode for inference
     model.eval()
 
     print("Tokenizer, Base Model, and Adapters loaded successfully.")
 
-
+    return model, tokenizer
