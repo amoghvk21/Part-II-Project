@@ -98,3 +98,4 @@ wcwidth==0.2.14
 wheel==0.45.1
 xxhash==3.6.0
 yarl==1.22.0
+wandb
