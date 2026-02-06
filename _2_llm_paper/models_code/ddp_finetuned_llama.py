@@ -186,7 +186,8 @@ def setup(model_id):
         model_id,
         quantization_config=bnb_config,
         device_map=device_map,
-        dtype=torch.bfloat16
+        dtype=torch.bfloat16,
+        attn_implementation="flash_attention_2"
     )
 
     model = model.to(device)
@@ -438,7 +439,8 @@ def load(base_model_id, adapter_dir):
         base_model_id,
         quantization_config=bnb_config,
         device_map="auto",
-        dtype=torch.bfloat16
+        dtype=torch.bfloat16,
+        attn_implementation="flash_attention_2"
     )
 
     # Load and attach the Fine-Tuned Adapters
