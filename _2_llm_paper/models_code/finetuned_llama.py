@@ -199,8 +199,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
 
 
     training_args = TrainingArguments(
-        # output_dir=f"_2_llm_paper/models/{save_name}/checkpoints",
-        output_dir=f"/home/av670/rds/hpc-work/models/{save_name}/checkpoints",
+        output_dir=f"_2_llm_paper/models/{save_name}/checkpoints",
         num_train_epochs=NUM_TRAIN_EPOCHS,
         per_device_train_batch_size=PER_DEVICE_TRAIN_BATCH_SIZE,      # TODO Check this
         per_device_eval_batch_size=PER_DEVICE_EVAL_BATCH_SIZE,       # TODO Check this
@@ -251,8 +250,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         print("No checkpoint found. Starting training from scratch...")
         trainer.train()
 
-    # trainer.model.save_pretrained(f"_2_llm_paper/models/{save_name}/model")
-    trainer.model.save_pretrained(f"/home/av670/rds/hpc-work/models/{save_name}/model")
+    trainer.model.save_pretrained(f"_2_llm_paper/models/{save_name}/model")
     print("Model saved.")
 
 # %% [markdown]
@@ -391,7 +389,7 @@ def load(base_model_id, adapter_dir):
     )
 
     # 5. Load and attach the Fine-Tuned Adapters
-    model = PeftModel.from_pretrained(base_model, f"/home/av670/rds/hpc-work/models/{adapter_dir}/model")
+    model = PeftModel.from_pretrained(base_model, f"_2_llm_paper/models/{adapter_dir}/model")
 
     # 6. Set mode for inference
     model.eval()

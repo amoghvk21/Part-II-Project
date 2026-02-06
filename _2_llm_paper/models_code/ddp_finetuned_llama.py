@@ -233,8 +233,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         print(f"Training with DDP | world_size={world_size}")
 
     training_args = TrainingArguments(
-        # output_dir=f"_2_llm_paper/models/{save_name}/checkpoints",
-        output_dir=f"/home/av670/rds/hpc-work/models/{save_name}/checkpoints",
+        output_dir=f"_2_llm_paper/models/{save_name}/checkpoints",
         num_train_epochs=NUM_TRAIN_EPOCHS,
         per_device_train_batch_size=PER_DEVICE_TRAIN_BATCH_SIZE,      # TODO Check this
         per_device_eval_batch_size=PER_DEVICE_EVAL_BATCH_SIZE,       # TODO Check this
@@ -293,8 +292,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
 
     # Only save on main process (rank 0) to avoid conflicts
     if local_rank == 0:
-        # trainer.model.save_pretrained(f"_2_llm_paper/models/{save_name}/model")
-        trainer.model.save_pretrained(f"/home/av670/rds/hpc-work/models/{save_name}/model")
+        trainer.model.save_pretrained(f"_2_llm_paper/models/{save_name}/model")
         print("Model saved.")
     else:
         print(f"Skipping save on non-main process (rank {local_rank})")
@@ -444,7 +442,7 @@ def load(base_model_id, adapter_dir):
     )
 
     # Load and attach the Fine-Tuned Adapters
-    model = PeftModel.from_pretrained(base_model, f"/home/av670/rds/hpc-work/models/{adapter_dir}/model")
+    model = PeftModel.from_pretrained(base_model, f"_2_llm_paper/models/{adapter_dir}/model")
 
     # Set mode for inference
     model.eval()
