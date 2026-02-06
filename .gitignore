@@ -14,4 +14,5 @@ __pycache__/
 
 .vscode/
 .cursor/
-.env
+_1_compustat_paper/.env
+_2_llm_paper/.env
