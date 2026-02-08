@@ -186,8 +186,7 @@ def setup(model_id):
         model_id,
         quantization_config=bnb_config,
         device_map=device_map,
-        dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2"
+        dtype=torch.bfloat16
     )
 
     model = model.to(device)
@@ -417,7 +416,7 @@ def evaluation(model, tokenizer, df_eval):
 
 # %%
 def load(base_model_id, adapter_dir):
-    # Quantization (Recommended to match your training environment)
+    # Quantization
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_use_double_quant=True,
@@ -425,7 +424,7 @@ def load(base_model_id, adapter_dir):
         bnb_4bit_compute_dtype=torch.bfloat16
     )
 
-    # Load the Tokenizer (Load from base model, not adapter dir, unless you explicitly saved it there)
+    # Load the Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(base_model_id)
 
     tokenizer.pad_token = '<|reserved_special_token_0|>'
@@ -439,8 +438,7 @@ def load(base_model_id, adapter_dir):
         base_model_id,
         quantization_config=bnb_config,
         device_map="auto",
-        dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2"
+        dtype=torch.bfloat16
     )
 
     # Load and attach the Fine-Tuned Adapters

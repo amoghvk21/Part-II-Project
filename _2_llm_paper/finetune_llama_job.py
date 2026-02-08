@@ -70,10 +70,15 @@ get_model_id = {
 # j) vader          - used in paper
 # k) lm             - used in paper
 
+#MODEL = 'c'
+#MODEL_LOAD_DIR = 'finetuned_llama_31_8b'
+#MODEL_ID = get_model_id[MODEL]
+#MODEL_SAVE_DIR = 'finetuned_llama_31_8b'
+
 MODEL = 'c'
-MODEL_LOAD_DIR = 'finetuned_llama_31_8b'
-MODEL_ID = get_model_id[MODEL]
-MODEL_SAVE_DIR = 'finetuned_llama_31_8b'
+MODEL_LOAD_DIR = 'finetuned_llama_31_8b_instruct'
+MODEL_ID = 'meta-llama/Meta-Llama-3.1-8B-Instruct'
+MODEL_SAVE_DIR = 'finetuned_llama_31_8b_instruct'
 
 
 # %% [markdown]

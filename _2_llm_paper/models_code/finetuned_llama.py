@@ -18,6 +18,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_su
 from tqdm import tqdm
 import import_ipynb
 from transformers.trainer_utils import get_last_checkpoint
+from functools import partial
 
 # %% [markdown]
 # # Hyperparamers
@@ -40,20 +41,25 @@ LORA_TARGET_MODULES = [   # Injecting into all linear layers as per paper
 
 # Llama parameters
 NUM_TRAIN_EPOCHS = 3
-PER_DEVICE_TRAIN_BATCH_SIZE = 1
-PER_DEVICE_EVAL_BATCH_SIZE = 1
-GRADIENT_ACCUMULATION_STEPS = 32
+PER_DEVICE_TRAIN_BATCH_SIZE = 16
+PER_DEVICE_EVAL_BATCH_SIZE = 16
+GRADIENT_ACCUMULATION_STEPS = 1
 SAVE_STEPS = 50
 LEARNING_RATE = 1e-5
 WEIGHT_DECAY = 0.1
 MAX_GRAD_NORM = 0.3
 LOGGING_STEPS = 10
 
+# effective batch size = batch size per device * gradient accumulation steps * number of gpus 
+# paper used effective batch size of 32
+
+print("new hyperparams")
+
 # %% [markdown]
 # # Prompt Generation
 
 # %%
-def generate_prompt(row, is_training=True):
+def generate_prompt(row, tokenizer, is_training=True):
     title = row.get('Title', '')
     text = row.get('Full Text', '')
     currencies = row.get('mentioned_currencies')
@@ -102,8 +108,12 @@ def generate_prompt(row, is_training=True):
         "- **NZD**: NZD, New Zealand Dollar, New Zealand Dollars, Kiwi\n"
         "- **NOK**: NOK, Norwegian Krone, Norwegian Kroner\n"
         "- **SEK**: SEK, Swedish Krona, Swedish Kronor\n\n"
-        "Answer below in the given format:"
+        "Answer below in the given format:\n"
     )
+
+    messages = [
+        {"role": "user", "content": prompt} # 'prompt' is your string from before
+    ]
     
     if is_training:
         # Exptected output for currencies mentioned in the article
@@ -115,16 +125,21 @@ def generate_prompt(row, is_training=True):
             expected_output += f'{c}_past: "{past_label}"\n'
             expected_output += f'{c}_future: "{future_label}"\n'
             
-        return prompt + "\n" + expected_output
+        messages.append({"role": "assistant", "content": expected_output})
+        
+        # Apply template to the WHOLE conversation
+        return tokenizer.apply_chat_template(messages, tokenize=False)
     else:
-        return prompt + "\n"
+        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 # %% [markdown]
 # # Finetuned Llama Model Setup
 
 # %%
 def setup(model_id):
-    
+
+    load_dotenv()
+    login(token=os.getenv("HF_TOKEN"))
 
     # quntisation config
     bnb_config = BitsAndBytesConfig(
@@ -138,17 +153,10 @@ def setup(model_id):
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.model_max_length = MAX_SEQ_LENGTH
     
-    if tokenizer.pad_token is None:
-        # Check for Llama 3 specific reserved token first (Standard HF approach)
-        if '<|reserved_special_token_0|>' in tokenizer.get_vocab():
-            tokenizer.pad_token = '<|reserved_special_token_0|>'
-            tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<|reserved_special_token_0|>')
-            print("Set pad_token to Llama 3 reserved token (<|reserved_special_token_0|>)")
-        else:
-            raise Exception("Can't find padding token")
-
-    else:
-        print(f"Padding token is already set to: {tokenizer.pad_token}")
+    # Force padding token to <|reserved_special_token_0|>
+    tokenizer.pad_token = '<|reserved_special_token_0|>'
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<|reserved_special_token_0|>')
+    print("Set pad_token to Llama 3 reserved token (<|reserved_special_token_0|>)")
 
     tokenizer.padding_side = "right"    # Use right for finetuning
 
@@ -165,10 +173,9 @@ def setup(model_id):
     print(f"Model loaded with device_map='auto'. First parameter on: {device}")
 
     model.config.use_cache = False
-    model.config.pretraining_tp = 1
 
     # Prepare for training 
-    model = prepare_model_for_kbit_training(model)
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 
     # LoRA config
     peft_config = LoraConfig(
@@ -229,12 +236,15 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
     df_train = Dataset.from_pandas(df_train)
     df_test = Dataset.from_pandas(df_test)
 
+    # Create partial function with tokenizer bound
+    formatting_func = partial(generate_prompt, tokenizer=tokenizer)
+
     trainer = SFTTrainer(
         model=model,
         train_dataset=df_train, # Ensure this is loaded
         eval_dataset=df_test,
         peft_config=peft_config,
-        formatting_func=generate_prompt,
+        formatting_func=formatting_func,
         processing_class=tokenizer,
         args=training_args,
         # packing=False,
@@ -263,7 +273,10 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
 
 # %%
 def get_sentiment(row, model, tokenizer):
-    prompt = generate_prompt(row)
+
+    tokenizer.padding_side = "left"   # for inference
+
+    prompt = generate_prompt(row, tokenizer, is_training=False)
 
     inputs = tokenizer(
         prompt,
@@ -283,14 +296,16 @@ def get_sentiment(row, model, tokenizer):
             max_new_tokens=512,     # only needs to generate enough for sentiment
             temperature=0.1,        # incase there was sampling
             do_sample=False,        # no sampling - so no randomness
-            pad_token_id=tokenizer.eos_token_id
+            pad_token_id=tokenizer.pad_token_id   # Use same padding token as training
         )
-
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    response = response[len(prompt):].strip()    # skips over prompt
+    
+    input_len = inputs['input_ids'].shape[1] # len of input tokens
+    response_tokens = outputs[0][input_len:] # remove to get only the response
+    response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
 
     # Validate response is not empty
     if not response:
+        print("")
         return {}
 
     # Parse response to get labels into a dict
@@ -367,7 +382,7 @@ def evaluation(model, tokenizer, df_eval):
 
 # %%
 def load(base_model_id, adapter_dir):
-    # 2. Quantization (Recommended to match your training environment)
+    # Quantization
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_use_double_quant=True,
@@ -375,12 +390,16 @@ def load(base_model_id, adapter_dir):
         bnb_4bit_compute_dtype=torch.bfloat16
     )
 
-    # 3. Load the Tokenizer (Load from base model, not adapter dir, unless you explicitly saved it there)
+    # Load the Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(base_model_id)
-    tokenizer.pad_token = tokenizer.eos_token
+
+    tokenizer.pad_token = '<|reserved_special_token_0|>'
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<|reserved_special_token_0|>')
+    print("Set pad_token to Llama 3 reserved token (<|reserved_special_token_0|>)")
+
     tokenizer.padding_side = "left"    # for inference
 
-    # 4. Load the Base Model
+    # Load the Base Model
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_id,
         quantization_config=bnb_config,
@@ -388,12 +407,13 @@ def load(base_model_id, adapter_dir):
         dtype=torch.bfloat16
     )
 
-    # 5. Load and attach the Fine-Tuned Adapters
+    # Load and attach the Fine-Tuned Adapters
     model = PeftModel.from_pretrained(base_model, f"_2_llm_paper/models/{adapter_dir}/model")
 
-    # 6. Set mode for inference
+    # Set mode for inference
     model.eval()
 
     print("Tokenizer, Base Model, and Adapters loaded successfully.")
 
+    return model, tokenizer
 
