@@ -154,7 +154,6 @@ def setup(model_id):
         f"PID={os.getpid()} "
         f"RANK={os.environ['RANK']} "
         f"LOCAL_RANK={os.environ['LOCAL_RANK']} "
-        f"CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}"
     )
 
     # quntisation config
@@ -244,6 +243,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         weight_decay=WEIGHT_DECAY,                   #  High weight decay
         fp16=False,
         bf16=True,
+        tf32=True,                                     # Use TF32 on Ampere+ GPUs for faster matmuls
         max_grad_norm=MAX_GRAD_NORM,                  # TODO apparenly this is the best for lora??? - not said in the paper
         warmup_ratio=0.0,                   # 
         lr_scheduler_type="cosine",         #                  
@@ -258,6 +258,8 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         report_to="none",                    # Disable wandb unless needed
         ddp_find_unused_parameters=False,    # Important for DDP efficiency
         dataloader_pin_memory=True,          # Can help with multi-GPU performance
+        dataloader_num_workers=4,
+        torch_compile=True,                  # Compile model for optimized execution
     )
 
 
