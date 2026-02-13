@@ -19,7 +19,7 @@ from tqdm import tqdm
 import import_ipynb
 from transformers.trainer_utils import get_last_checkpoint
 from functools import partial
-
+import wandb
 # %% [markdown]
 # # Hyperparamers
 
@@ -41,9 +41,9 @@ LORA_TARGET_MODULES = [   # Injecting into all linear layers as per paper
 
 # Llama parameters
 NUM_TRAIN_EPOCHS = 3
-PER_DEVICE_TRAIN_BATCH_SIZE = 32
-PER_DEVICE_EVAL_BATCH_SIZE = 32
-GRADIENT_ACCUMULATION_STEPS = 1
+PER_DEVICE_TRAIN_BATCH_SIZE = 4
+PER_DEVICE_EVAL_BATCH_SIZE = 16
+GRADIENT_ACCUMULATION_STEPS = 8
 SAVE_STEPS = 373
 LEARNING_RATE = 1e-5
 WEIGHT_DECAY = 0.1
@@ -205,6 +205,30 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
 
     tokenizer.padding_side = "right"   # for finetuning
 
+    wandb.init(
+        entity="av670-university-of-cambridge",
+        project="part-ii-project",
+        name=save_name,
+        config={
+            "max_seq_length": MAX_SEQ_LENGTH,
+            "lora_r": LORA_R,
+            "lora_alpha": LORA_ALPHA,
+            "lora_dropout": LORA_DROPOUT,
+            "lora_target_modules": LORA_TARGET_MODULES,
+            "num_train_epochs": NUM_TRAIN_EPOCHS,
+            "per_device_train_batch_size": PER_DEVICE_TRAIN_BATCH_SIZE,
+            "per_device_eval_batch_size": PER_DEVICE_EVAL_BATCH_SIZE,
+            "gradient_accumulation_steps": GRADIENT_ACCUMULATION_STEPS,
+            "learning_rate": LEARNING_RATE,
+            "weight_decay": WEIGHT_DECAY,
+            "max_grad_norm": MAX_GRAD_NORM,
+            "train_size": len(df_train),
+            "eval_size": len(df_test),
+            "save_steps": SAVE_STEPS,
+            "eval_steps": EVAL_STEPS,
+            "logging_steps": LOGGING_STEPS
+        }
+    )
 
     training_args = TrainingArguments(
         output_dir=f"_2_llm_paper/models/{save_name}/checkpoints",
@@ -231,7 +255,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         logging_steps=LOGGING_STEPS,                   # TODO get a better number
         save_total_limit=3,
         group_by_length=True,
-        report_to="none",                    # Disable wandb unless needed
+        report_to="wandb",  # Enable wandb on main process only
         dataloader_pin_memory=True,
         dataloader_num_workers=8,
     )
@@ -267,6 +291,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
 
     trainer.model.save_pretrained(f"_2_llm_paper/models/{save_name}/model")
     print("Model saved.")
+    wandb.finish()
 
 # %% [markdown]
 # # Evaulation
