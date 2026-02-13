@@ -41,14 +41,15 @@ LORA_TARGET_MODULES = [   # Injecting into all linear layers as per paper
 
 # Llama parameters
 NUM_TRAIN_EPOCHS = 3
-PER_DEVICE_TRAIN_BATCH_SIZE = 16
-PER_DEVICE_EVAL_BATCH_SIZE = 16
+PER_DEVICE_TRAIN_BATCH_SIZE = 32
+PER_DEVICE_EVAL_BATCH_SIZE = 32
 GRADIENT_ACCUMULATION_STEPS = 1
-SAVE_STEPS = 50
+SAVE_STEPS = 373
 LEARNING_RATE = 1e-5
 WEIGHT_DECAY = 0.1
 MAX_GRAD_NORM = 0.3
 LOGGING_STEPS = 10
+EVAL_STEPS = 373
 
 # effective batch size = batch size per device * gradient accumulation steps * number of gpus 
 # paper used effective batch size of 32
@@ -217,18 +218,22 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         weight_decay=WEIGHT_DECAY,                   #  High weight decay
         fp16=False,
         bf16=True,
+        tf32=True,                                     # Use TF32 on Ampere+ GPUs for faster matmuls
         max_grad_norm=MAX_GRAD_NORM,                  # TODO apparenly this is the best for lora??? - not said in the paper
         warmup_ratio=0.0,                   # 
         lr_scheduler_type="cosine",         #                  
         save_strategy="steps",              # for early stopping   (could be epoch)
         eval_strategy="steps",              # for early stopping   (could be epoch)
+        eval_steps=EVAL_STEPS,              # eval every half epoch
         load_best_model_at_end=True,         # for early stopping
         metric_for_best_model="eval_loss",   # for early stopping
         greater_is_better=False,     # less loss is better
         logging_steps=LOGGING_STEPS,                   # TODO get a better number
         save_total_limit=3,
         group_by_length=True,
-        report_to="none"                    # Disable wandb unless needed
+        report_to="none",                    # Disable wandb unless needed
+        dataloader_pin_memory=True,
+        dataloader_num_workers=8,
     )
 
 
