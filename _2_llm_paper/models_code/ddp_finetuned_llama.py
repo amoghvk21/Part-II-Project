@@ -41,14 +41,15 @@ LORA_TARGET_MODULES = [   # Injecting into all linear layers as per paper
 
 # Llama parameters
 NUM_TRAIN_EPOCHS = 3
-PER_DEVICE_TRAIN_BATCH_SIZE = 8
+PER_DEVICE_TRAIN_BATCH_SIZE = 4
 PER_DEVICE_EVAL_BATCH_SIZE = 8
 GRADIENT_ACCUMULATION_STEPS = 2
-SAVE_STEPS = 50
+SAVE_STEPS = 373
 LEARNING_RATE = 1e-5
 WEIGHT_DECAY = 0.1
 MAX_GRAD_NORM = 0.3
 LOGGING_STEPS = 10
+EVAL_STEPS = 373
 
 # effective batch size = batch size per device * gradient accumulation steps * number of gpus 
 # paper used effective batch size of 32
@@ -258,8 +259,9 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         report_to="none",                    # Disable wandb unless needed
         ddp_find_unused_parameters=False,    # Important for DDP efficiency
         dataloader_pin_memory=True,          # Can help with multi-GPU performance
-        dataloader_num_workers=4,
+        dataloader_num_workers=8,
         torch_compile=True,                  # Compile model for optimized execution
+        eval_steps=EVAL_STEPS,
     )
 
 
