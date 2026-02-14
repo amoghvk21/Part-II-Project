@@ -126,7 +126,13 @@ df_train = pd.read_pickle("_2_llm_paper/cache/df_train.pkl")
 df_test = pd.read_pickle("_2_llm_paper/cache/df_test.pkl")
 df_eval = pd.read_pickle("_2_llm_paper/cache/df_eval.pkl")
 
-
+# 8192 * 3.9 = 31,948.8 ~ 32,000 characters max allowed by the model
+# estimate 2000 characters for prompt instructions and meta data
+# 32,000 - 2,000 = 30,000 characters max allowed for the article
+print("Truncating articles to 30,000 characters")
+MAX_ARTICLE_CHARS = 30000
+for df in [df_train, df_test, df_eval]:
+    df['Full Text'] = df['Full Text'].str[:MAX_ARTICLE_CHARS]
 
 print("Size of train set: ", len(df_train))
 print("Size of test set: ", len(df_test))
