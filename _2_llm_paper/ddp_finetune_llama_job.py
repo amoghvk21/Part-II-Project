@@ -91,9 +91,9 @@ get_model_id = {
 #MODEL_SAVE_DIR = 'finetuned_llama_31_8b'
 
 MODEL = 'c'
-MODEL_LOAD_DIR = 'finetuned_llama_31_8b_instruct'
+MODEL_LOAD_DIR = 'finetuned_llama_8b'
 MODEL_ID = 'meta-llama/Meta-Llama-3.1-8B-Instruct'
-MODEL_SAVE_DIR = 'finetuned_llama_31_8b_instruct'
+MODEL_SAVE_DIR = 'finetuned_llama_8b'
 
 
 # %% [markdown]
@@ -166,12 +166,15 @@ if local_rank == 0 and torch.cuda.is_available():
     for i in range(torch.cuda.device_count()):
         print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
 
+if local_rank == 0:
+    print("finetuning model")
 ddp_finetuned_llama.finetune(model, tokenizer, peft_config, df_train, df_test, MODEL_SAVE_DIR)
-if local_rank == 0:  # Only print on main process
+if local_rank == 0:
     print("finetune completed")
 
 # Only run evaluation on main process (rank 0)
 if local_rank == 0:
+    print("evaluating model")
     ddp_finetuned_llama.evaluation(model, tokenizer, df_eval)
     print("evaluation completed")
 

@@ -19,7 +19,7 @@ from tqdm import tqdm
 import import_ipynb
 from transformers.trainer_utils import get_last_checkpoint
 from functools import partial
-
+import wandb
 # %% [markdown]
 # # Hyperparamers
 
@@ -232,6 +232,33 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
     if local_rank == 0:  # Only print on main process
         print(f"Training with DDP | world_size={world_size}")
 
+    if local_rank == 0:  # Only print on main process
+        wandb.init(
+            entity="av670-university-of-cambridge",
+            project="part-ii-project",
+            name=save_name,
+            notes="No notes",
+            config={
+                "max_seq_length": MAX_SEQ_LENGTH,
+                "lora_r": LORA_R,
+                "lora_alpha": LORA_ALPHA,
+                "lora_dropout": LORA_DROPOUT,
+                "lora_target_modules": LORA_TARGET_MODULES,
+                "num_train_epochs": NUM_TRAIN_EPOCHS,
+                "per_device_train_batch_size": PER_DEVICE_TRAIN_BATCH_SIZE,
+                "per_device_eval_batch_size": PER_DEVICE_EVAL_BATCH_SIZE,
+                "gradient_accumulation_steps": GRADIENT_ACCUMULATION_STEPS,
+                "learning_rate": LEARNING_RATE,
+                "weight_decay": WEIGHT_DECAY,
+                "max_grad_norm": MAX_GRAD_NORM,
+                "train_size": len(df_train),
+                "eval_size": len(df_test),
+                "save_steps": SAVE_STEPS,
+                "eval_steps": EVAL_STEPS,
+                "logging_steps": LOGGING_STEPS
+            }
+        )
+
     training_args = TrainingArguments(
         output_dir=f"_2_llm_paper/models/{save_name}/checkpoints",
         num_train_epochs=NUM_TRAIN_EPOCHS,
@@ -250,18 +277,17 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         lr_scheduler_type="cosine",         #                  
         save_strategy="steps",              # for early stopping   (could be epoch)
         eval_strategy="steps",              # for early stopping   (could be epoch)
+        eval_steps=EVAL_STEPS,              # eval every half epoch
         load_best_model_at_end=True,         # for early stopping
         metric_for_best_model="eval_loss",   # for early stopping
         greater_is_better=False,     # less loss is better
         logging_steps=LOGGING_STEPS,                   # TODO get a better number
         save_total_limit=3,
-        group_by_length=True,
-        report_to="none",                    # Disable wandb unless needed
+        # group_by_length=True,
+        report_to="wandb",
         ddp_find_unused_parameters=False,    # Important for DDP efficiency
         dataloader_pin_memory=True,          # Can help with multi-GPU performance
         dataloader_num_workers=8,
-        torch_compile=True,                  # Compile model for optimized execution
-        eval_steps=EVAL_STEPS,
     )
 
 
@@ -294,10 +320,18 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
             print("No checkpoint found. Starting training from scratch...")
         trainer.train()
 
+    # Check if early stopping was triggered
+    if trainer.state.epoch < NUM_TRAIN_EPOCHS:
+        print(f"\n*** Early stopping triggered at epoch {trainer.state.epoch:.2f} (out of {NUM_TRAIN_EPOCHS}) ***") if local_rank == 0 else None
+        print(f"Best metric ({training_args.metric_for_best_model}): {trainer.state.best_metric:.4f}") if local_rank == 0 else None
+    else:
+        print(f"\nTraining completed all {NUM_TRAIN_EPOCHS} epochs.") if local_rank == 0 else None
+
     # Only save on main process (rank 0) to avoid conflicts
     if local_rank == 0:
         trainer.model.save_pretrained(f"_2_llm_paper/models/{save_name}/model")
         print("Model saved.")
+        wandb.finish()
     else:
         print(f"Skipping save on non-main process (rank {local_rank})")
 
@@ -320,7 +354,7 @@ def get_sentiment(row, model, tokenizer):
         prompt,
         return_tensors="pt",
         truncation=True,  # to avoid crashing model due to very large article
-        max_length=8192
+        max_length=MAX_SEQ_LENGTH  # reserving 1000 tokens for prompt info
     )
     
     # For multi-GPU models, get device from first parameter
@@ -337,7 +371,7 @@ def get_sentiment(row, model, tokenizer):
             pad_token_id=tokenizer.pad_token_id   # Use same padding token as training
         )
     
-    input_len = inputs['input_ids'].shape[1] # le of input tokens
+    input_len = inputs['input_ids'].shape[1] # len of input tokens
     response_tokens = outputs[0][input_len:] # remove to get only the response
     response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
 
@@ -353,7 +387,7 @@ def get_sentiment(row, model, tokenizer):
             if line.strip():
                 currency, label = line.split(':')
                 currency = currency.strip()
-                label = label.strip()
+                label = label.strip().strip('"').strip("'")
                 sentiment[currency] = label
         except ValueError:
             print(f"Error in response: {response} on line: {line}")
