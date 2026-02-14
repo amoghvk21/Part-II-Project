@@ -209,6 +209,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         entity="av670-university-of-cambridge",
         project="part-ii-project",
         name=save_name,
+        notes="Stripped quotes from parsed labels for evaluation; disabled group_by_length in training",
         config={
             "max_seq_length": MAX_SEQ_LENGTH,
             "lora_r": LORA_R,
