@@ -289,6 +289,13 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         print("No checkpoint found. Starting training from scratch...")
         trainer.train()
 
+    # Check if early stopping was triggered
+    if trainer.state.epoch < NUM_TRAIN_EPOCHS:
+        print(f"\n*** Early stopping triggered at epoch {trainer.state.epoch:.2f} (out of {NUM_TRAIN_EPOCHS}) ***")
+        print(f"Best metric ({training_args.metric_for_best_model}): {trainer.state.best_metric:.4f}")
+    else:
+        print(f"\nTraining completed all {NUM_TRAIN_EPOCHS} epochs.")
+
     trainer.model.save_pretrained(f"_2_llm_paper/models/{save_name}/model")
     print("Model saved.")
     wandb.finish()
@@ -345,7 +352,7 @@ def get_sentiment(row, model, tokenizer):
             if line.strip():
                 currency, label = line.split(':')
                 currency = currency.strip()
-                label = label.strip()
+                label = label.strip().strip('"').strip("'")
                 sentiment[currency] = label
         except ValueError:
             print(f"Error in response: {response} on line: {line}")

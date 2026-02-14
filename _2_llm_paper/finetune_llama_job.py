@@ -148,9 +148,11 @@ if torch.cuda.is_available():
     for i in range(torch.cuda.device_count()):
         print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
 
+print("finetuning model")
 finetuned_llama.finetune(model, tokenizer, peft_config, df_train, df_test, MODEL_SAVE_DIR)
 print("finetune completed")
 
+print("evaluating model")
 finetuned_llama.evaluation(model, tokenizer, df_eval)
 print("evaluation completed")
 
