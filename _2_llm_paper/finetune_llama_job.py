@@ -76,9 +76,9 @@ get_model_id = {
 #MODEL_SAVE_DIR = 'finetuned_llama_31_8b'
 
 MODEL = 'c'
-MODEL_LOAD_DIR = 'finetuned_llama_31_8b_instruct'
+MODEL_LOAD_DIR = 'finetuned_llama_31_8b_instruct_nogroupby'
 MODEL_ID = 'meta-llama/Meta-Llama-3.1-8B-Instruct'
-MODEL_SAVE_DIR = 'finetuned_llama_31_8b_instruct'
+MODEL_SAVE_DIR = 'finetuned_llama_31_8b_instruct_nogroupby'
 
 
 # %% [markdown]

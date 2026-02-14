@@ -254,7 +254,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         greater_is_better=False,     # less loss is better
         logging_steps=LOGGING_STEPS,                   # TODO get a better number
         save_total_limit=3,
-        group_by_length=True,
+        # group_by_length=True,
         report_to="wandb",  # Enable wandb on main process only
         dataloader_pin_memory=True,
         dataloader_num_workers=8,
