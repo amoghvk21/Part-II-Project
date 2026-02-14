@@ -1,0 +1,18 @@
+MISTAKES in not sripping quotes
+
+
+{'accuracy': 0.2905, 'f1': 0.08763197586726999, 'precision_per_class': {'appreciation': np.float64(0.0), 'depreciation': np.float64(0.0), 'unchanged': np.float64(0.41205673758865247)}, 'recall_per_class': {'appreciation': np.float64(0.0), 'depreciation': np.float64(0.0), 'unchanged': np.float64(0.72625)}, 'f1_per_class': {'appreciation': np.float64(0.0), 'depreciation': np.float64(0.0), 'unchanged': np.float64(0.5257918552036199)}, 'support_per_class': {'appreciation': np.int64(1200), 'depreciation': np.int64(1200), 'unchanged': np.int64(1600)}}
+
+
+                precision    recall  f1-score   support
+
+"appreciation"       0.00      0.00      0.00         0
+"depreciation"       0.00      0.00      0.00         0
+   "unchanged"       0.00      0.00      0.00         0
+  appreciation       0.00      0.00      0.00      1200
+  depreciation       0.00      0.00      0.00      1200
+     unchanged       0.41      0.73      0.53      1600
+
+      accuracy                           0.29      4000
+     macro avg       0.07      0.12      0.09      4000
+  weighted avg       0.16      0.29      0.21      
