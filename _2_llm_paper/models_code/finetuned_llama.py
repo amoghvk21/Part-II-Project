@@ -320,7 +320,7 @@ def get_sentiment(row, model, tokenizer):
         prompt,
         return_tensors="pt",
         truncation=True,  # to avoid crashing model due to very large article
-        max_length=8192
+        max_length=MAX_SEQ_LENGTH
     )
     
     # For multi-GPU models, get device from first parameter

@@ -50,3 +50,8 @@ for n in [1, 2, 3, 5, 10]:
     print(f"{n:>12}  {n_tokens:>16}  {MAX_SEQ_LENGTH - n_tokens:>22}")
 
 print(f"\nMax context window: {MAX_SEQ_LENGTH} tokens")
+
+
+# results 
+# 950 tokens for 10 currencies
+# around to 1000
