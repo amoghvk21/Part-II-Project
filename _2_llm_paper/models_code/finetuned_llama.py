@@ -331,8 +331,7 @@ def get_sentiment(row, model, tokenizer):
     with torch.no_grad():
         outputs = model.generate(
             **inputs, 
-            max_new_tokens=512,     # only needs to generate enough for sentiment
-            temperature=0.1,        # incase there was sampling
+            max_new_tokens=150,     # ~100 tokens needed for 10 currencies × 2 labels
             do_sample=False,        # no sampling - so no randomness
             pad_token_id=tokenizer.pad_token_id   # Use same padding token as training
         )
@@ -412,7 +411,7 @@ def get_sentiment_batch(rows, model, tokenizer, batch_size=8):
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=512,
+                max_new_tokens=150,     # ~100 tokens needed for 10 currencies × 2 labels
                 do_sample=False,
                 pad_token_id=tokenizer.pad_token_id
             )

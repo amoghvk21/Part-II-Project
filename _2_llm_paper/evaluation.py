@@ -112,7 +112,7 @@ df_news
 # ### 3.3 Make inferences for all articles
 
 # %%
-BATCH_SIZE = 8  # Adjust based on GPU memory
+BATCH_SIZE = 16  # Adjust based on GPU memory
 
 print(f"Getting sentiment predictions for all articles (batch_size={BATCH_SIZE})...")
 
