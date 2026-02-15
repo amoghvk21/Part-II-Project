@@ -32,7 +32,7 @@ import import_ipynb
 print("imports done")
 
 get_model_id = {
-    'a': "meta-llama/Meta-Llama-3-8B-Instruct",
+    'a': "meta-llama/Meta-Llama-3.1-8B-Instruct",
     'b': "meta-llama/Meta-Llama-3-70B-Instruct",
 
     'c': "meta-llama/Meta-Llama-3.1-8B",
@@ -65,7 +65,7 @@ get_model_id = {
 # j) vader          - used in paper
 # k) lm             - used in paper
 
-MODEL = 'c'
+MODEL = 'a'
 MODEL_LOAD_DIR = 'finetuned_llama_8b'
 MODEL_ID = get_model_id[MODEL]
 
@@ -77,7 +77,7 @@ MODEL_ID = get_model_id[MODEL]
 # ### 3.1 Load Model
 
 # %%
-import _2_llm_paper.models_code.finetuned_llama as finetuned_llama
+import models_code.finetuned_llama as finetuned_llama
 
 model, tokenizer = finetuned_llama.load(MODEL_ID, MODEL_LOAD_DIR)
 

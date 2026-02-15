@@ -420,6 +420,9 @@ def evaluation(model, tokenizer, df_eval):
 
 # %%
 def load(base_model_id, adapter_dir):
+    load_dotenv()
+    login(token=os.getenv("HF_TOKEN"))
+
     # Quantization
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
