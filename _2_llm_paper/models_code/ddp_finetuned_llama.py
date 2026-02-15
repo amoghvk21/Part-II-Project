@@ -221,7 +221,11 @@ def setup(model_id):
 #     - Stops traning if the validation loss stagnates due to overfitting
 
 # %%
-def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
+def finetune(model, tokenizer, peft_config, df_train, df_test, save_name, learning_rate=None):
+
+    # Use passed learning_rate or fall back to module default
+    if learning_rate is None:
+        learning_rate = LEARNING_RATE
 
     tokenizer.padding_side = "right"   # for finetuning
 
@@ -248,7 +252,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
                 "per_device_train_batch_size": PER_DEVICE_TRAIN_BATCH_SIZE,
                 "per_device_eval_batch_size": PER_DEVICE_EVAL_BATCH_SIZE,
                 "gradient_accumulation_steps": GRADIENT_ACCUMULATION_STEPS,
-                "learning_rate": LEARNING_RATE,
+                "learning_rate": learning_rate,
                 "weight_decay": WEIGHT_DECAY,
                 "max_grad_norm": MAX_GRAD_NORM,
                 "train_size": len(df_train),
@@ -267,7 +271,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
         gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS, 
         optim="paged_adamw_32bit",          # 
         save_steps=SAVE_STEPS,                      # TODO get better number
-        learning_rate=LEARNING_RATE,                 #  Note: significantly lower than standard
+        learning_rate=learning_rate,                 #  Note: significantly lower than standard
         weight_decay=WEIGHT_DECAY,                   #  High weight decay
         fp16=False,
         bf16=True,

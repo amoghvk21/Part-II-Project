@@ -22,6 +22,7 @@ from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from sklearn.model_selection import train_test_split
 from dotenv import load_dotenv
 import os
+import argparse
 from huggingface_hub import login
 from trl import SFTTrainer
 from datasets import Dataset
@@ -30,6 +31,12 @@ from tqdm import tqdm
 import import_ipynb
 
 print("imports done")
+
+# Parse command-line arguments (torchrun passes its own args, so use parse_known_args)
+parser = argparse.ArgumentParser()
+parser.add_argument("--learning_rate", type=float, default=1e-5, help="Learning rate for fine-tuning")
+parser.add_argument("--save_dir", type=str, default="finetuned_llama_8b", help="Directory name to save model under _2_llm_paper/models/")
+args, _ = parser.parse_known_args()
 
 # Initialize DDP (required for this script - run with torchrun)
 import torch.distributed as dist
@@ -91,9 +98,9 @@ get_model_id = {
 #MODEL_SAVE_DIR = 'finetuned_llama_31_8b'
 
 MODEL = 'c'
-MODEL_LOAD_DIR = 'finetuned_llama_8b'
+MODEL_LOAD_DIR = args.save_dir
 MODEL_ID = 'meta-llama/Meta-Llama-3.1-8B-Instruct'
-MODEL_SAVE_DIR = 'finetuned_llama_8b'
+MODEL_SAVE_DIR = args.save_dir
 
 
 # %% [markdown]
@@ -167,8 +174,8 @@ if local_rank == 0 and torch.cuda.is_available():
         print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
 
 if local_rank == 0:
-    print("finetuning model")
-ddp_finetuned_llama.finetune(model, tokenizer, peft_config, df_train, df_test, MODEL_SAVE_DIR)
+    print(f"finetuning model | learning_rate={args.learning_rate} | save_dir={MODEL_SAVE_DIR}")
+ddp_finetuned_llama.finetune(model, tokenizer, peft_config, df_train, df_test, MODEL_SAVE_DIR, learning_rate=args.learning_rate)
 if local_rank == 0:
     print("finetune completed")
 

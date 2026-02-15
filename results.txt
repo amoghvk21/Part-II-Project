@@ -16,3 +16,20 @@ MISTAKES in not sripping quotes
       accuracy                           0.29      4000
      macro avg       0.07      0.12      0.09      4000
   weighted avg       0.16      0.29      0.21      
+
+
+
+
+
+  {'accuracy': 0.39725, 'f1': 0.2543151172416203, 'precision_per_class': {'appreciation': np.float64(0.32217573221757323), 'depreciation': np.float64(0.32524271844660196), 'unchanged': np.float64(0.40646976090014064)}, 'recall_per_class': {'appreciation': np.float64(0.06416666666666666), 'depreciation': np.float64(0.05583333333333333), 'unchanged': np.float64(0.903125)}, 'f1_per_class': {'appreciation': np.float64(0.10701876302988186), 'depreciation': np.float64(0.0953058321479374), 'unchanged': np.float64(0.5606207565470417)}, 'support_per_class': {'appreciation': np.int64(1200), 'depreciation': np.int64(1200), 'unchanged': np.int64(1600)}}
+
+
+              precision    recall  f1-score   support
+
+appreciation       0.32      0.06      0.11      1200
+depreciation       0.33      0.06      0.10      1200
+   unchanged       0.41      0.90      0.56      1600
+
+    accuracy                           0.40      4000
+   macro avg       0.35      0.34      0.25      4000
+weighted avg       0.36      0.40      0.28      4000
