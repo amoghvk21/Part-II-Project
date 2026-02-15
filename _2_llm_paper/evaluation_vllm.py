@@ -152,6 +152,7 @@ if USE_LORA:
         max_model_len=MAX_SEQ_LENGTH,
         dtype="bfloat16",
         gpu_memory_utilization=0.90,
+        enforce_eager=True,       # Avoids flash_attn/cudagraph issues; remove once flash-attn is rebuilt
     )
     lora_request = LoRARequest("finetuned_adapter", 1, LORA_ADAPTER_PATH)
 else:
@@ -160,6 +161,7 @@ else:
         max_model_len=MAX_SEQ_LENGTH,
         dtype="bfloat16",
         gpu_memory_utilization=0.90,
+        enforce_eager=True,       # Avoids flash_attn/cudagraph issues; remove once flash-attn is rebuilt
     )
     lora_request = None
 
