@@ -362,6 +362,72 @@ def get_sentiment(row, model, tokenizer):
     return sentiment
 
 # %% [markdown]
+# ## 5.1b Batched sentiment prediction
+
+# %%
+def parse_response(response):
+    """Parse a single model response into a sentiment dict."""
+    if not response:
+        return {}
+    
+    sentiment = {}
+    for line in response.split('\n'):
+        try:
+            if line.strip():
+                currency, label = line.split(':')
+                currency = currency.strip()
+                label = label.strip().strip('"').strip("'")
+                sentiment[currency] = label
+        except ValueError:
+            return {}
+    return sentiment
+
+
+def get_sentiment_batch(rows, model, tokenizer, batch_size=8):
+    """
+    Process multiple rows at once using batched model.generate().
+    Returns a list of sentiment dicts, one per row.
+    """
+    tokenizer.padding_side = "left"  # for inference
+    device = next(model.parameters()).device
+
+    all_sentiments = []
+
+    for i in range(0, len(rows), batch_size):
+        batch_rows = rows[i:i + batch_size]
+
+        # Generate prompts for the batch
+        prompts = [generate_prompt(row, tokenizer, is_training=False) for row in batch_rows]
+
+        # Tokenize all prompts together with left-padding
+        inputs = tokenizer(
+            prompts,
+            return_tensors="pt",
+            truncation=True,
+            max_length=MAX_SEQ_LENGTH,
+            padding=True,
+        )
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=512,
+                do_sample=False,
+                pad_token_id=tokenizer.pad_token_id
+            )
+
+        # Decode each response in the batch
+        for j, output in enumerate(outputs):
+            input_len = inputs['input_ids'][j].shape[0]
+            response_tokens = output[input_len:]
+            response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
+            all_sentiments.append(parse_response(response))
+
+    return all_sentiments
+
+
+# %% [markdown]
 # ## 5.2 Get evaulation statistics
 
 # %%

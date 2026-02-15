@@ -112,13 +112,17 @@ df_news
 # ### 3.3 Make inferences for all articles
 
 # %%
-print("Getting sentiment predictions for all articles...")
+BATCH_SIZE = 8  # Adjust based on GPU memory
 
+print(f"Getting sentiment predictions for all articles (batch_size={BATCH_SIZE})...")
+
+rows = [row for _, row in df_news.iterrows()]
 sentiment_predictions = []
 
-for idx, row in tqdm(df_news.iterrows(), total=len(df_news), desc="Processing articles"):
-    sentiment = finetuned_llama.get_sentiment(row, model, tokenizer)   # returns a dict
-    sentiment_predictions.append(sentiment)
+for i in tqdm(range(0, len(rows), BATCH_SIZE), desc="Processing batches"):
+    batch = rows[i:i + BATCH_SIZE]
+    batch_results = finetuned_llama.get_sentiment_batch(batch, model, tokenizer, batch_size=BATCH_SIZE)
+    sentiment_predictions.extend(batch_results)
 
 df_news['sentiment_predictions'] = sentiment_predictions
 
