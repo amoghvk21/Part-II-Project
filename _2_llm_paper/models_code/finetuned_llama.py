@@ -481,7 +481,130 @@ def evaluation(model, tokenizer, df_eval):
     print(report)
 
 # %% [markdown]
-# # Loading Model for Downstream Application
+# # Predict All Articles (for Downstream Application) — vLLM
+# Uses vLLM for fast inference with automatic continuous batching.
+# This is the model-specific prediction step before the model-agnostic
+# downstream trading strategy pipeline.
+
+# %%
+def predict_all(llm, tokenizer, df_news, lora_request=None):
+    """Generate sentiment predictions for all articles in df_news using vLLM.
+
+    vLLM handles batching automatically via continuous batching and
+    PagedAttention, so no manual batch loop is needed.
+
+    Args:
+        llm:           vllm.LLM engine (from load_vllm)
+        tokenizer:     corresponding tokenizer (for prompt formatting)
+        df_news:       DataFrame with ['Title', 'Full Text', 'mentioned_currencies', 'Trading Date']
+        lora_request:  optional vllm LoRARequest (from load_vllm), None for base model
+
+    Returns:
+        df_news: same DataFrame with 'sentiment_predictions' column added,
+                 rows with empty predictions removed
+    """
+    from vllm import SamplingParams
+
+    print(f"Getting vLLM sentiment predictions for {len(df_news)} articles...")
+
+    # Format all prompts upfront
+    print("Generating prompts...")
+    prompts = []
+    for _, row in tqdm(df_news.iterrows(), total=len(df_news), desc="Formatting prompts"):
+        prompts.append(generate_prompt(row, tokenizer, is_training=False))
+    print(f"Generated {len(prompts)} prompts. Starting vLLM inference...")
+
+    # vLLM sampling parameters — deterministic, no sampling
+    sampling_params = SamplingParams(
+        temperature=0,       # no sampling
+        max_tokens=150,      # ~100 tokens needed for 10 currencies × 2 labels
+    )
+
+    # vLLM automatically batches all prompts optimally
+    outputs = llm.generate(prompts, sampling_params, lora_request=lora_request)
+
+    # Parse all responses
+    sentiment_predictions = []
+    for output in outputs:
+        response = output.outputs[0].text.strip()
+        sentiment_predictions.append(parse_response(response))
+
+    df_news = df_news.copy()
+    df_news['sentiment_predictions'] = sentiment_predictions
+
+    # Filter out rows with empty sentiment predictions (failed LLM responses)
+    initial_count = len(df_news)
+    df_news = df_news[df_news['sentiment_predictions'].apply(lambda x: len(x) > 0)]
+    df_news = df_news.reset_index(drop=True)
+    filtered_count = len(df_news)
+
+    print(f"Filtered out {initial_count - filtered_count} rows with empty sentiment predictions")
+    print(f"Remaining articles: {filtered_count}")
+
+    return df_news
+
+# %% [markdown]
+# # Loading Model for Downstream Application — vLLM
+
+# %%
+def load_vllm(model_id, adapter_dir=None):
+    """Load model via vLLM for fast downstream inference.
+
+    Supports both base model (adapter_dir=None) and fine-tuned LoRA
+    adapter inference. Uses BitsAndBytes 4-bit quantization when LoRA
+    is enabled (matching the training quantization).
+
+    Args:
+        model_id:    HuggingFace model ID (e.g. 'meta-llama/Meta-Llama-3.1-8B-Instruct')
+        adapter_dir: name of the adapter directory under _2_llm_paper/models/,
+                     or None for base model without LoRA
+
+    Returns:
+        llm:           vllm.LLM engine
+        tokenizer:     AutoTokenizer (for prompt formatting)
+        lora_request:  vllm.lora.request.LoRARequest or None
+    """
+    from vllm import LLM
+    from vllm.lora.request import LoRARequest
+
+    load_dotenv()
+    login(token=os.getenv("HF_TOKEN"))
+
+    # Load tokenizer for prompt formatting
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = '<|reserved_special_token_0|>'
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<|reserved_special_token_0|>')
+    tokenizer.padding_side = "left"
+
+    if adapter_dir is not None:
+        lora_adapter_path = f"_2_llm_paper/models/{adapter_dir}/model"
+        llm = LLM(
+            model=model_id,
+            quantization="bitsandbytes",
+            enable_lora=True,
+            max_lora_rank=16,
+            max_model_len=MAX_SEQ_LENGTH,
+            dtype="bfloat16",
+            gpu_memory_utilization=0.90,
+            enforce_eager=True,
+        )
+        lora_request = LoRARequest("finetuned_adapter", 1, lora_adapter_path)
+        print(f"vLLM model loaded with LoRA adapter from '{lora_adapter_path}'.")
+    else:
+        llm = LLM(
+            model=model_id,
+            max_model_len=MAX_SEQ_LENGTH,
+            dtype="bfloat16",
+            gpu_memory_utilization=0.90,
+            enforce_eager=True,
+        )
+        lora_request = None
+        print(f"vLLM base model loaded (no LoRA).")
+
+    return llm, tokenizer, lora_request
+
+# %% [markdown]
+# # Loading Model for Downstream Application — HuggingFace (non-vLLM)
 
 # %%
 def load(base_model_id, adapter_dir):

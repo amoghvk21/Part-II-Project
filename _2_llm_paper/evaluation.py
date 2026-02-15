@@ -132,7 +132,7 @@ df_news = df_news[df_news['sentiment_predictions'].apply(lambda x: len(x) > 0)]
 df_news = df_news.reset_index(drop=True)
 filtered_count = len(df_news)
 
-print(f"Filtered out {initial_count - filtered_count} rows with empty sentiment predictions")
+print(f"Filtered out {initial_count - filtered_count} rows with empty sentiment predictions")   
 print(f"Remaining articles: {filtered_count}")
 
 # %% [markdown]
