@@ -1,12 +1,3 @@
-# %% [markdown]
-# # Implementing "FX sentiment analysis with large language models" (Ballinari et al.)
-# ## vLLM-accelerated evaluation
-# Uses vLLM for significantly faster batched inference via PagedAttention and continuous batching.
-
-# %% [markdown]
-# ## Imports
-
-# %%
 import numpy as np
 import pandas as pd
 from transformers import AutoTokenizer
@@ -43,10 +34,7 @@ MAX_SEQ_LENGTH = 8192
 
 USE_LORA = True   # Set to False for base model evaluation (no LoRA adapter)
 
-# %% [markdown]
-# ## Prompt Generation (same as finetuned_llama.py)
 
-# %%
 def generate_prompt(row, tokenizer):
     title = row.get('Title', '')
     text = row.get('Full Text', '')
@@ -106,6 +94,7 @@ def generate_prompt(row, tokenizer):
     return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 
+
 def parse_response(response):
     """Parse a single model response into a sentiment dict."""
     if not response:
@@ -124,14 +113,7 @@ def parse_response(response):
     return sentiment
 
 
-# %% [markdown]
-# ## 3 Downstream Application - vLLM Accelerated
-# Using model trained on pre 2020 data to backtest on 2020-2024 market
 
-# %% [markdown]
-# ### 3.1 Load Model with vLLM
-
-# %%
 load_dotenv()
 login(token=os.getenv("HF_TOKEN"))
 
@@ -152,7 +134,7 @@ if USE_LORA:
         max_model_len=MAX_SEQ_LENGTH,
         dtype="bfloat16",
         gpu_memory_utilization=0.90,
-        enforce_eager=True,       # Avoids flash_attn/cudagraph issues; remove once flash-attn is rebuilt
+        enforce_eager=True,
     )
     lora_request = LoRARequest("finetuned_adapter", 1, LORA_ADAPTER_PATH)
 else:
@@ -161,16 +143,14 @@ else:
         max_model_len=MAX_SEQ_LENGTH,
         dtype="bfloat16",
         gpu_memory_utilization=0.90,
-        enforce_eager=True,       # Avoids flash_attn/cudagraph issues; remove once flash-attn is rebuilt
+        enforce_eager=True,
     )
     lora_request = None
 
 print("vLLM model loaded.")
 
-# %% [markdown]
-# ### 3.2 Load data
 
-# %%
+
 df_news = pd.read_pickle("_2_llm_paper/cache/df_news.pkl")
 
 df_news = df_news[
@@ -184,27 +164,22 @@ df_news = df_news.reset_index(drop=True)
 # Drop the labels - we will predict these
 df_news = df_news[['Title', 'Full Text', 'mentioned_currencies', 'Trading Date']]
 
-df_news
 
-# %% [markdown]
-# ### 3.3 Make inferences for all articles using vLLM
-# vLLM handles batching internally with continuous batching and PagedAttention.
-# We submit ALL prompts at once and let vLLM schedule them optimally.
 
-# %%
+
 print("Generating prompts for all articles...")
 prompts = []
 for _, row in tqdm(df_news.iterrows(), total=len(df_news), desc="Formatting prompts"):
     prompts.append(generate_prompt(row, tokenizer))
-
 print(f"Generated {len(prompts)} prompts. Starting vLLM inference...")
 
+
 sampling_params = SamplingParams(
-    temperature=0,       # greedy decoding (no randomness), same as do_sample=False
+    temperature=0,       # no sampling - good for inference
     max_tokens=150,      # ~100 tokens needed for 10 currencies × 2 labels
 )
 
-# vLLM processes all prompts with optimal batching automatically
+# automaticallt batches
 outputs = llm.generate(prompts, sampling_params, lora_request=lora_request)
 
 # Parse all responses
