@@ -291,7 +291,7 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name, learni
         report_to="wandb",
         ddp_find_unused_parameters=False,    # Important for DDP efficiency
         dataloader_pin_memory=True,          # Can help with multi-GPU performance
-        dataloader_num_workers=8,
+        dataloader_num_workers=1,
     )
 
 
