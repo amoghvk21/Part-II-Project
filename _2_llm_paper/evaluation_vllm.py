@@ -142,13 +142,11 @@ tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<|reserved_special_tok
 tokenizer.padding_side = "left"
 
 # Load model with vLLM
-# Using BitsAndBytes 4-bit quantization with LoRA (QLoRA)
+# BitsAndBytes 4-bit quantization + LoRA adapter at inference time
 if USE_LORA:
     llm = LLM(
         model=MODEL_ID,
         quantization="bitsandbytes",
-        load_format="bitsandbytes",
-        qlora_adapter_name_or_path=LORA_ADAPTER_PATH,
         enable_lora=True,
         max_lora_rank=16,
         max_model_len=MAX_SEQ_LENGTH,
