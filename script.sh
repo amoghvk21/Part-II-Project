@@ -5,12 +5,12 @@ set -eo pipefail
 # Always shut down the instance when the script exits (success or failure)
 trap 'sudo shutdown -h now' EXIT
 
-# echo "Running ddp finetuned llama job - lr=5e-6"
+# echo "Running ddp finetuned llama job - lr=5e-6" (already done)
 # torchrun --nproc_per_node=4 --master_port=29500 "_2_llm_paper/ddp_finetune_llama_job.py" --learning_rate 5e-6 --save_dir "finetuned_llama_8b_lr5e6" 2>&1 | tee logs/lr5e6.log
 # echo "--------------------------------"
 # sleep 60
 
-# echo "Running ddp finetuned llama job - lr=1e-5"  # DONE ALEADY
+# echo "Running ddp finetuned llama job - lr=1e-5"  # already done (baseline)
 # torchrun --nproc_per_node=4 --master_port=29501 "_2_llm_paper/ddp_finetune_llama_job.py" --learning_rate 1e-5 --save_dir "finetuned_llama_8b_lr1e5" 2>&1 | tee logs/lr1e5.log
 # echo "--------------------------------"
 # sleep 60

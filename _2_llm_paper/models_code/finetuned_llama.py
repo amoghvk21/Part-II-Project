@@ -309,57 +309,6 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name):
 # - Gets the sentiment for a single article
 # - Used for evaulation
 
-# %%
-def get_sentiment(row, model, tokenizer):
-
-    tokenizer.padding_side = "left"   # for inference
-
-    prompt = generate_prompt(row, tokenizer, is_training=False)
-
-    inputs = tokenizer(
-        prompt,
-        return_tensors="pt",
-        truncation=True,  # to avoid crashing model due to very large article
-        max_length=MAX_SEQ_LENGTH
-    )
-    
-    # For multi-GPU models, get device from first parameter
-    # The model will automatically handle device placement
-    device = next(model.parameters()).device
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs, 
-            max_new_tokens=150,     # ~100 tokens needed for 10 currencies × 2 labels
-            do_sample=False,        # no sampling - so no randomness
-            pad_token_id=tokenizer.pad_token_id   # Use same padding token as training
-        )
-    
-    input_len = inputs['input_ids'].shape[1] # len of input tokens
-    response_tokens = outputs[0][input_len:] # remove to get only the response
-    response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
-
-    # Validate response is not empty
-    if not response:
-        print("")
-        return {}
-
-    # Parse response to get labels into a dict
-    sentiment = {}
-    for line in response.split('\n'):
-        try:
-            if line.strip():
-                currency, label = line.split(':')
-                currency = currency.strip()
-                label = label.strip().strip('"').strip("'")
-                sentiment[currency] = label
-        except ValueError:
-            print(f"Error in response: {response} on line: {line}")
-            return {}
-
-    return sentiment
-
 # %% [markdown]
 # ## 5.1b Batched sentiment prediction
 
@@ -430,6 +379,7 @@ def get_sentiment_batch(rows, model, tokenizer, batch_size=8):
 # ## 5.2 Get evaulation statistics
 
 # %%
+EVAL_BATCH_SIZE = PER_DEVICE_EVAL_BATCH_SIZE   # Number of articles to process at once during evaluation
 def evaluation(model, tokenizer, df_eval):
     currency_codes = ['EUR', 'USD', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD', 'NOK', 'SEK']
 
@@ -439,19 +389,26 @@ def evaluation(model, tokenizer, df_eval):
     tokenizer.padding_side = "left"   # for inference
 
     skipped_rows = 0
-    for i, row in df_eval.iterrows():
-        sentiment = get_sentiment(row, model, tokenizer)
-        
-        # Skip this row if LLM response was invalid
-        if sentiment == {}:
-            skipped_rows += 1
-            print(f"Skipping row {i} due to invalid LLM response format")
-            continue
-            
-        for c in currency_codes:
-            for t in ['past', 'future']:
-                all_actual.append(row[f'{c}_{t}_label'])
-                all_predictions.append(sentiment.get(f'{c}_{t}', 'unchanged'))
+    num_rows = len(df_eval)
+
+    # Process in batches
+    for batch_start in tqdm(range(0, num_rows, EVAL_BATCH_SIZE), desc="Evaluation"):
+        batch_end = min(batch_start + EVAL_BATCH_SIZE, num_rows)
+        batch_df = df_eval.iloc[batch_start:batch_end]
+
+        sentiments = get_sentiment_batch(batch_df, model=model, tokenizer=tokenizer)
+
+        for (idx, row), sentiment in zip(batch_df.iterrows(), sentiments):
+            # Skip this row if LLM response was invalid
+            if sentiment == {}:
+                skipped_rows += 1
+                print(f"Skipping row {idx} due to invalid LLM response format")
+                continue
+                
+            for c in currency_codes:
+                for t in ['past', 'future']:
+                    all_actual.append(row[f'{c}_{t}_label'])
+                    all_predictions.append(sentiment.get(f'{c}_{t}', 'unchanged'))
 
         
         
@@ -605,6 +562,7 @@ def load_vllm(model_id, adapter_dir=None):
 
 # %% [markdown]
 # # Loading Model for Downstream Application — HuggingFace (non-vLLM)
+# Can be used for attention visualisation
 
 # %%
 def load(base_model_id, adapter_dir):

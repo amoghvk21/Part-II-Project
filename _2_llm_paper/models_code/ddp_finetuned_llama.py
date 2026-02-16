@@ -347,44 +347,15 @@ def finetune(model, tokenizer, peft_config, df_train, df_test, save_name, learni
 # - Gets the sentiment for a single article
 # - Used for evaulation
 
+# %% [markdown]
+# ## 5.1b Batched sentiment prediction
+
 # %%
-def get_sentiment(row, model, tokenizer):
-
-    tokenizer.padding_side = "left"   # for inference
-
-    prompt = generate_prompt(row, tokenizer, is_training=False)
-
-    inputs = tokenizer(
-        prompt,
-        return_tensors="pt",
-        truncation=True,  # to avoid crashing model due to very large article
-        max_length=MAX_SEQ_LENGTH  # reserving 1000 tokens for prompt info
-    )
-    
-    # For multi-GPU models, get device from first parameter
-    # The model will automatically handle device placement
-    device = next(model.parameters()).device
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs, 
-            max_new_tokens=512,     # only needs to generate enough for sentiment
-            temperature=0.1,        # incase there was sampling
-            do_sample=False,        # no sampling - so no randomness
-            pad_token_id=tokenizer.pad_token_id   # Use same padding token as training
-        )
-    
-    input_len = inputs['input_ids'].shape[1] # len of input tokens
-    response_tokens = outputs[0][input_len:] # remove to get only the response
-    response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
-
-    # Validate response is not empty
+def parse_response(response):
+    """Parse a single model response into a sentiment dict."""
     if not response:
-        print("")
         return {}
-
-    # Parse response to get labels into a dict
+    
     sentiment = {}
     for line in response.split('\n'):
         try:
@@ -394,15 +365,59 @@ def get_sentiment(row, model, tokenizer):
                 label = label.strip().strip('"').strip("'")
                 sentiment[currency] = label
         except ValueError:
-            print(f"Error in response: {response} on line: {line}")
             return {}
-
     return sentiment
+
+
+def get_sentiment_batch(rows, model, tokenizer, batch_size=8):
+    """
+    Process multiple rows at once using batched model.generate().
+    Returns a list of sentiment dicts, one per row.
+    """
+    tokenizer.padding_side = "left"  # for inference
+    device = next(model.parameters()).device
+
+    all_sentiments = []
+
+    for i in range(0, len(rows), batch_size):
+        batch_rows = rows[i:i + batch_size]
+
+        # Generate prompts for the batch
+        prompts = [generate_prompt(row, tokenizer, is_training=False) for row in batch_rows]
+
+        # Tokenize all prompts together with left-padding
+        inputs = tokenizer(
+            prompts,
+            return_tensors="pt",
+            truncation=True,
+            max_length=MAX_SEQ_LENGTH,
+            padding=True,
+        )
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=150,     # ~100 tokens needed for 10 currencies × 2 labels
+                do_sample=False,
+                pad_token_id=tokenizer.pad_token_id
+            )
+
+        # Decode each response in the batch
+        for j, output in enumerate(outputs):
+            input_len = inputs['input_ids'][j].shape[0]
+            response_tokens = output[input_len:]
+            response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
+            all_sentiments.append(parse_response(response))
+
+    return all_sentiments
+
 
 # %% [markdown]
 # ## 5.2 Get evaulation statistics
 
 # %%
+EVAL_BATCH_SIZE = PER_DEVICE_EVAL_BATCH_SIZE   # Number of articles to process at once during evaluation
 def evaluation(model, tokenizer, df_eval):
     currency_codes = ['EUR', 'USD', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD', 'NOK', 'SEK']
 
@@ -412,19 +427,26 @@ def evaluation(model, tokenizer, df_eval):
     tokenizer.padding_side = "left"   # for inference
 
     skipped_rows = 0
-    for i, row in df_eval.iterrows():
-        sentiment = get_sentiment(row, model=model, tokenizer=tokenizer)
-        
-        # Skip this row if LLM response was invalid
-        if sentiment == {}:
-            skipped_rows += 1
-            print(f"Skipping row {i} due to invalid LLM response format")
-            continue
-            
-        for c in currency_codes:
-            for t in ['past', 'future']:
-                all_actual.append(row[f'{c}_{t}_label'])
-                all_predictions.append(sentiment.get(f'{c}_{t}', 'unchanged'))
+    num_rows = len(df_eval)
+
+    # Process in batches
+    for batch_start in tqdm(range(0, num_rows, EVAL_BATCH_SIZE), desc="Evaluation"):
+        batch_end = min(batch_start + EVAL_BATCH_SIZE, num_rows)
+        batch_df = df_eval.iloc[batch_start:batch_end]
+
+        sentiments = get_sentiment_batch(batch_df, model=model, tokenizer=tokenizer)
+
+        for (idx, row), sentiment in zip(batch_df.iterrows(), sentiments):
+            # Skip this row if LLM response was invalid
+            if sentiment == {}:
+                skipped_rows += 1
+                print(f"Skipping row {idx} due to invalid LLM response format")
+                continue
+                
+            for c in currency_codes:
+                for t in ['past', 'future']:
+                    all_actual.append(row[f'{c}_{t}_label'])
+                    all_predictions.append(sentiment.get(f'{c}_{t}', 'unchanged'))
 
         
         
@@ -454,10 +476,137 @@ def evaluation(model, tokenizer, df_eval):
     print(report)
 
 # %% [markdown]
-# # Loading Model for Downstream Application
+# # Predict All Articles (for Downstream Application) — vLLM
+# Uses vLLM for fast inference with automatic continuous batching.
+# This is the model-specific prediction step before the model-agnostic
+# downstream trading strategy pipeline.
+
+# %%
+def predict_all(llm, tokenizer, df_news, lora_request=None):
+    """Generate sentiment predictions for all articles in df_news using vLLM.
+
+    vLLM handles batching automatically via continuous batching and
+    PagedAttention, so no manual batch loop is needed.
+
+    Args:
+        llm:           vllm.LLM engine (from load_vllm)
+        tokenizer:     corresponding tokenizer (for prompt formatting)
+        df_news:       DataFrame with ['Title', 'Full Text', 'mentioned_currencies', 'Trading Date']
+        lora_request:  optional vllm LoRARequest (from load_vllm), None for base model
+
+    Returns:
+        df_news: same DataFrame with 'sentiment_predictions' column added,
+                 rows with empty predictions removed
+    """
+    from vllm import SamplingParams
+
+    print(f"Getting vLLM sentiment predictions for {len(df_news)} articles...")
+
+    # Format all prompts upfront
+    print("Generating prompts...")
+    prompts = []
+    for _, row in tqdm(df_news.iterrows(), total=len(df_news), desc="Formatting prompts"):
+        prompts.append(generate_prompt(row, tokenizer, is_training=False))
+    print(f"Generated {len(prompts)} prompts. Starting vLLM inference...")
+
+    # vLLM sampling parameters — deterministic, no sampling
+    sampling_params = SamplingParams(
+        temperature=0,       # no sampling
+        max_tokens=150,      # ~100 tokens needed for 10 currencies × 2 labels
+    )
+
+    # vLLM automatically batches all prompts optimally
+    outputs = llm.generate(prompts, sampling_params, lora_request=lora_request)
+
+    # Parse all responses
+    sentiment_predictions = []
+    for output in outputs:
+        response = output.outputs[0].text.strip()
+        sentiment_predictions.append(parse_response(response))
+
+    df_news = df_news.copy()
+    df_news['sentiment_predictions'] = sentiment_predictions
+
+    # Filter out rows with empty sentiment predictions (failed LLM responses)
+    initial_count = len(df_news)
+    df_news = df_news[df_news['sentiment_predictions'].apply(lambda x: len(x) > 0)]
+    df_news = df_news.reset_index(drop=True)
+    filtered_count = len(df_news)
+
+    print(f"Filtered out {initial_count - filtered_count} rows with empty sentiment predictions")
+    print(f"Remaining articles: {filtered_count}")
+
+    return df_news
+
+# %% [markdown]
+# # Loading Model for Downstream Application — vLLM
+
+# %%
+def load_vllm(model_id, adapter_dir=None):
+    """Load model via vLLM for fast downstream inference.
+
+    Supports both base model (adapter_dir=None) and fine-tuned LoRA
+    adapter inference. Uses BitsAndBytes 4-bit quantization when LoRA
+    is enabled (matching the training quantization).
+
+    Args:
+        model_id:    HuggingFace model ID (e.g. 'meta-llama/Meta-Llama-3.1-8B-Instruct')
+        adapter_dir: name of the adapter directory under _2_llm_paper/models/,
+                     or None for base model without LoRA
+
+    Returns:
+        llm:           vllm.LLM engine
+        tokenizer:     AutoTokenizer (for prompt formatting)
+        lora_request:  vllm.lora.request.LoRARequest or None
+    """
+    from vllm import LLM
+    from vllm.lora.request import LoRARequest
+
+    load_dotenv()
+    login(token=os.getenv("HF_TOKEN"))
+
+    # Load tokenizer for prompt formatting
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = '<|reserved_special_token_0|>'
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<|reserved_special_token_0|>')
+    tokenizer.padding_side = "left"
+
+    if adapter_dir is not None:
+        lora_adapter_path = f"_2_llm_paper/models/{adapter_dir}/model"
+        llm = LLM(
+            model=model_id,
+            quantization="bitsandbytes",
+            enable_lora=True,
+            max_lora_rank=16,
+            max_model_len=MAX_SEQ_LENGTH,
+            dtype="bfloat16",
+            gpu_memory_utilization=0.90,
+            enforce_eager=True,
+        )
+        lora_request = LoRARequest("finetuned_adapter", 1, lora_adapter_path)
+        print(f"vLLM model loaded with LoRA adapter from '{lora_adapter_path}'.")
+    else:
+        llm = LLM(
+            model=model_id,
+            max_model_len=MAX_SEQ_LENGTH,
+            dtype="bfloat16",
+            gpu_memory_utilization=0.90,
+            enforce_eager=True,
+        )
+        lora_request = None
+        print(f"vLLM base model loaded (no LoRA).")
+
+    return llm, tokenizer, lora_request
+
+# %% [markdown]
+# # Loading Model for Downstream Application — HuggingFace (non-vLLM)
+# Can be used for attention visualisation
 
 # %%
 def load(base_model_id, adapter_dir):
+    load_dotenv()
+    login(token=os.getenv("HF_TOKEN"))
+
     # Quantization
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,

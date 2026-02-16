@@ -429,3 +429,5 @@ def run_lm_dictionary(dict_path=None):
     metrics = run(df_news)
 
     return metrics
+
+print(run_finetuned_llama())
